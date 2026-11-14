@@ -3,15 +3,16 @@
 
 Each package folder needs an awtrix.json manifest (see the repo README).
 
-    python3 tools/build.py                          # validate all, zip all into dist/
-    python3 tools/build.py --check                  # validate all, no zips
-    python3 tools/build.py --tag big-clock-v1.2.0   # one package; fails if versions differ
+    python3 tools/build.py                                   # zip every package into dist/
+    python3 tools/build.py packages/big-clock --tag v1.0     # zip one package as dist/big-clock-v1.0.zip
+    python3 tools/build.py --check                           # validate only
 
-Release tags are per package: <package-folder>-v<version>.
+--tag must match the package's version (for a script, its '# @version' line).
 
 Standard library only, so it runs on any machine with Python 3.8+.
 """
 
+import argparse
 import json
 import re
 import sys
@@ -93,7 +94,7 @@ def load_package(folder):
 
 
 def write_zip(pkg):
-    out = DIST / f"{pkg['folder'].name}-{pkg['version']}.zip"
+    out = DIST / f"{pkg['folder'].name}-v{pkg['version']}.zip"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for name in pkg["files"]:
             info = zipfile.ZipInfo(f"{pkg['folder'].name}/{name}", ZIP_DATE)
@@ -103,46 +104,34 @@ def write_zip(pkg):
     return out
 
 
-def parse_tag(tag):
-    """'big-clock-v1.2.0' -> ('big-clock', '1.2.0')"""
-    m = re.match(r"^(.+)-v(\d[\w.\-]*)$", tag)
-    if not m:
-        raise PackageError(f"tag {tag!r} should look like <package-folder>-v<version>, "
-                           f"for example big-clock-v1.2.0")
-    return m.group(1), m.group(2)
-
-
 def main():
-    args = sys.argv[1:]
-    check_only = "--check" in args
-    tag = args[args.index("--tag") + 1] if "--tag" in args else None
+    parser = argparse.ArgumentParser(
+        description="Validate packages and zip them into dist/ for sharing on awtrix.de.")
+    parser.add_argument("dirs", nargs="*", type=Path, metavar="DIR",
+                        help="package folder(s) to build (default: every folder in packages/)")
+    parser.add_argument("--tag", help="release tag such as v1.0; must match the package's version")
+    parser.add_argument("--check", action="store_true", help="validate only, don't write zips")
+    args = parser.parse_args()
 
-    folders = sorted(p for p in PACKAGES.iterdir() if p.is_dir())
-    want_version = None
-    if tag:
-        try:
-            want_folder, want_version = parse_tag(tag)
-        except PackageError as e:
-            print(e, file=sys.stderr)
-            return 1
-        folders = [f for f in folders if f.name == want_folder]
-        if not folders:
-            print(f"tag {tag!r}: no folder packages/{want_folder}", file=sys.stderr)
-            return 1
+    want_version = args.tag[1:] if args.tag and args.tag[0] in "vV" else args.tag
+    folders = [d.resolve() for d in args.dirs] or sorted(p for p in PACKAGES.iterdir() if p.is_dir())
 
     packages, errors = [], []
     for folder in folders:
-        if not (folder / "awtrix.json").is_file():
+        if not folder.is_dir():
+            errors.append(f"{folder}: not a directory")
+        elif not (folder / "awtrix.json").is_file():
             errors.append(f"{folder.name}: missing awtrix.json")
-            continue
-        try:
-            packages.append(load_package(folder))
-        except PackageError as e:
-            errors.append(f"{folder.name}: {e}")
-
-    if want_version and packages and packages[0]["version"] != want_version:
-        errors.append(f"{packages[0]['folder'].name}: tag says version {want_version} "
-                      f"but the package says {packages[0]['version']}. Bump one to match.")
+        else:
+            try:
+                pkg = load_package(folder)
+            except PackageError as e:
+                errors.append(f"{folder.name}: {e}")
+                continue
+            if want_version and pkg["version"] != want_version:
+                errors.append(f"{folder.name}: tag {args.tag} doesn't match the package's version "
+                              f"{pkg['version']}. Bump one to match.")
+            packages.append(pkg)
 
     if errors:
         print("Package problems:", *errors, sep="\n  ", file=sys.stderr)
@@ -150,12 +139,10 @@ def main():
 
     for pkg in packages:
         print(f"ok  {pkg['folder'].name}  ({pkg['type']} {pkg['name']} {pkg['version']})")
-    if check_only:
+    if args.check:
         return 0
 
     DIST.mkdir(exist_ok=True)
-    for old in DIST.glob("*.zip"):
-        old.unlink()
     for pkg in packages:
         print(f"->  {write_zip(pkg).relative_to(ROOT)}")
     return 0

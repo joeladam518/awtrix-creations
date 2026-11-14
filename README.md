@@ -14,29 +14,25 @@ Each package folder has its own README with install steps and settings.
 
 ---
 
-## Releasing a package
+## Packaging a release
 
-**Each package is released on its own**, with its own version. The tag picks the package:
-
-| Tag | Releases |
-|---|---|
-| `big-clock-v1.2.0` | `packages/big-clock` at version 1.2.0 |
-| `big-date-v2.0.0` | `packages/big-date` at version 2.0.0 |
+**Each package has its own version**, so one can be on 1.2.0 while another is on 2.0.0.
 
 1. **Bump the version** in the package. For a script, that's the `# @version` line in its `.ax` file.
-2. Merge to `main`.
-3. **Create a GitHub release** with a tag like `big-clock-v1.2.0`.
-4. The [release workflow](.github/workflows/release.yml) builds that package and attaches
-   `big-clock-1.2.0.zip` to the release.
-5. **Upload to awtrix.de by hand** (the Hub has no upload API). The zip holds everything the Hub's form
+2. **Build the zip**, pointing at the package folder with a matching tag:
+   ```sh
+   python3 tools/build.py packages/big-clock --tag v1.2.0
+   ```
+   This writes `dist/big-clock-v1.2.0.zip`.
+3. **Upload to awtrix.de by hand** (the Hub has no upload API). The zip holds everything the Hub's form
    asks for: the file to upload, `preview.png` for the cover, and the README for the description.
 
-**The tag version must match the package version exactly.** If it doesn't, the workflow fails and
-attaches nothing. `v1.0` and `v1.0.0` count as different.
+**The tag must match the package version exactly**, or the build stops and writes nothing. The leading
+`v` is optional, but `v1.0` and `v1.0.0` count as different.
 
 ## Adding a package
 
-1. Make a folder in `packages/`, named in kebab-case (`big-clock`). The folder name is the tag prefix.
+1. Make a folder in `packages/`, named in kebab-case (`big-clock`). The folder name starts the zip name.
 2. Add the files, a `README.md`, and optionally a `preview.png`.
 3. Add an `awtrix.json` manifest (below).
 4. Run `python3 tools/build.py --check` to validate.
@@ -63,14 +59,13 @@ Tells the build what the package is and what goes in its zip.
 
 `README.md` is always added to the zip.
 
-## Building locally
+## Build script options
 
-Needs only Python 3.8+.
+Needs only Python 3.8+. Zips go to `dist/`, which git ignores.
 
 ```sh
-python3 tools/build.py                          # validate and zip every package into dist/
-python3 tools/build.py --check                  # validate only
-python3 tools/build.py --tag big-clock-v1.0     # build one package, as the release does
+python3 tools/build.py                                  # zip every package
+python3 tools/build.py packages/big-clock --tag v1.0    # zip one package, checking its version
+python3 tools/build.py packages/big-clock packages/big-date   # zip several
+python3 tools/build.py --check                          # validate only, no zips
 ```
-
-A [check workflow](.github/workflows/check.yml) runs `--check` on every push and pull request.
