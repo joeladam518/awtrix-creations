@@ -31,8 +31,8 @@ AWTRIX NG's built-in fonts are at most 8 pixels tall, so BigDate draws its own d
 | Date format | **Format** | `MM-DD-YYYY` | `MM-DD-YYYY`, `DD-MM-YYYY`, `YYYY-MM-DD`, `Nov 17th` |
 | Date format | **Date separator** | `Dash (-)` | `Dot (.)`, `Dash (-)`, `Slash (/)`, `Backslash (\)`, `Pipe (\|)`. Not used by `Nov 17th`. |
 | Date format | **Year digits** | `4 digits` | `Hidden`, `2 digits`, `4 digits`. Applies to every format, including `Nov 17th`. |
-| Color | **Custom color** | off | Off: uses the device's **date color** if set, otherwise the **global text color**. |
-| Color | **Day color** | white | Used only when Custom color is on. |
+| Color | **Custom color** | off | Off: uses the device's **global text color**, so changing that changes the date. |
+| Color | **Color** | white | Used only when Custom color is on. |
 | Night time | **Use night color** | off | Switches to the night color between the two times below. |
 | Night time | **Night color** | red | Color during the night range. |
 | Night time | **Night starts** / **Night ends** | `22:00` / `07:00` | The night range. |
@@ -40,7 +40,7 @@ AWTRIX NG's built-in fonts are at most 8 pixels tall, so BigDate draws its own d
 **Every field is always visible.** AWTRIX NG can't hide settings based on other settings, so the color
 pickers are simply ignored until their checkbox is on.
 
-**Night color works with Custom color off too.** Day then uses the device or global color, and night
+**Night color works with Custom color off too.** Day then uses the global text color, and night
 uses your night color.
 
 ## Layouts

@@ -1,13 +1,13 @@
 # @name    BigClock
 # @desc    The biggest clock the 52x16 panel can show: 16-pixel digits, solid colon, optional small seconds and night color
 # @author  Joel
-# @version 1.0
+# @version 1.1
 # @display 52x16
 # @config  h24     bool  "24-hour time"     default=false group="Time format"
 # @config  lead    bool  "Leading zero"     default=false group="Time format" help="Show 09:05 instead of 9:05"
 # @config  secs    bool  "Show seconds"     default=false group="Time format" help="Hours and minutes stay full height; seconds show small in the bottom-right corner"
-# @config  custom  bool  "Custom color"     default=false group="Color" help="Off: the device's time color, or the global text color when that is not set"
-# @config  color   color "Day color"        default=#FFFFFF group="Color" help="Used only when Custom color is on"
+# @config  custom  bool  "Custom color"     default=false group="Color" help="Off: the global text color"
+# @config  color   color "Color"            default=#FFFFFF group="Color" help="Used only when Custom color is on"
 # @config  night   bool  "Use night color"  default=false group="Night time" help="Switch to the night color between the two times below"
 # @config  ncolor  color "Night color"      default=#FF0000 group="Night time" help="Used only when Use night color is on"
 # @config  nstart  text  "Night starts"     default="22:00" maxlen=8 group="Night time" help="24-hour HH:MM such as 22:00 (10pm also works)"
@@ -69,8 +69,7 @@ class BigClock
       if self.custom
         c = self.color
       else
-        c = settings.get("timeColor")
-        if c == nil c = settings.get("textColor") end
+        c = settings.get("textColor")
         if c == nil c = 0xFFFFFF end
       end
     end
@@ -89,6 +88,25 @@ class BigClock
       if sh > 1 pixel(sx - f, y + 1, 0) end
       return
     end
+    if d == 2 && w > 4
+      # a real 2 (curved top, diagonal, flat base), so it doesn't read as an S
+      var t = sv + 1
+      var r0 = h / 2 - 2
+      var r1 = h - sh - 1
+      rect_fill(x, y, w, sh, c)
+      rect_fill(x + w - sv, y, sv, r0, c)
+      rect_fill(x, y + sh, sv, 1, c)
+      rect_fill(x, y + h - sh, w, sh, c)
+      pixel(x, y, 0)
+      pixel(x + w - 1, y, 0)
+      var r = r0
+      while r <= r1
+        var off = ((r - r0) * (w - t) + (r1 - r0) / 2) / (r1 - r0)
+        rect_fill(x + w - t - off, y + r, t, 1, c)
+        r += 1
+      end
+      return
+    end
     var b = self.seg[d]
     var up = gy + m - y
     var lo = y + h - gy
@@ -101,10 +119,12 @@ class BigClock
     if (b & 4) != 0 rect_fill(x + w - sv, gy, sv, lo, c) end
     if w > 4
       # round off the outer corners where two strokes meet
-      if (b & 33) == 33 pixel(x, y, 0) end
+      # (the 5 keeps a square top-left and gets a rounded bowl, so it doesn't read as an S)
+      if (b & 33) == 33 && d != 5 pixel(x, y, 0) end
       if (b & 3) == 3 pixel(x + w - 1, y, 0) end
       if (b & 24) == 24 pixel(x, y + h - 1, 0) end
       if (b & 12) == 12 pixel(x + w - 1, y + h - 1, 0) end
+      if d == 5 pixel(x + w - 1, gy, 0) end
     end
   end
 
@@ -126,11 +146,8 @@ class BigClock
     end
     var two = h >= 10 || self.lead
     var w = 11
-    var sv = 3
-    if self.secs
-      w = 9
-      sv = 2
-    end
+    var sv = 2
+    if self.secs w = 9 end
     var tw = 3 * w + 5
     if two tw += w + 1 end
     if self.secs tw += 9 end

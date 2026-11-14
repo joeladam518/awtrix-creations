@@ -1,13 +1,13 @@
 # @name    BigDate
 # @desc    The biggest date the 52x16 panel can show, in the format you pick, with optional night color
 # @author  Joel
-# @version 1.0
+# @version 1.1
 # @display 52x16
 # @config  fmt     select "Format"          default=MM-DD-YYYY options="MM-DD-YYYY,DD-MM-YYYY,YYYY-MM-DD,Nov 17th" group="Date format"
 # @config  sep     select "Date separator"  default="Dash (-)" options="Dot (.),Dash (-),Slash (/),Backslash (\),Pipe (|)" group="Date format" help="Not used by the Nov 17th format"
 # @config  year    select "Year digits"     default="4 digits" options="Hidden,2 digits,4 digits" group="Date format" help="Hidden or 2 digits: one big line. 4 digits: two lines"
-# @config  custom  bool   "Custom color"    default=false group="Color" help="Off: the device's date color, or the global text color when that is not set"
-# @config  color   color  "Day color"       default=#FFFFFF group="Color" help="Used only when Custom color is on"
+# @config  custom  bool   "Custom color"    default=false group="Color" help="Off: the global text color"
+# @config  color   color  "Color"           default=#FFFFFF group="Color" help="Used only when Custom color is on"
 # @config  night   bool   "Use night color" default=false group="Night time" help="Switch to the night color between the two times below"
 # @config  ncolor  color  "Night color"     default=#FF0000 group="Night time" help="Used only when Use night color is on"
 # @config  nstart  text   "Night starts"    default="22:00" maxlen=8 group="Night time" help="24-hour HH:MM such as 22:00 (10pm also works)"
@@ -95,8 +95,7 @@ class BigDate
       if self.custom
         c = self.color
       else
-        c = settings.get("dateColor")
-        if c == nil c = settings.get("textColor") end
+        c = settings.get("textColor")
         if c == nil c = 0xFFFFFF end
       end
     end

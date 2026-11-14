@@ -32,8 +32,8 @@ blocks. That makes them twice the size of any font on the clock.
 | Time format | **24-hour time** | off | Off: 12-hour (1–12). On: 0–23. |
 | Time format | **Leading zero** | off | `09:05` instead of `9:05`. Minutes always have two digits. |
 | Time format | **Show seconds** | off | Hours and minutes stay full height (a bit narrower). Seconds show small in the bottom-right corner. |
-| Color | **Custom color** | off | Off: uses the device's **time color** if set, otherwise the **global text color** (same rule as the built-in Time app). |
-| Color | **Day color** | white | Used only when Custom color is on. |
+| Color | **Custom color** | off | Off: uses the device's **global text color**, so changing that changes the clock. |
+| Color | **Color** | white | Used only when Custom color is on. |
 | Night time | **Use night color** | off | Switches to the night color between the two times below. |
 | Night time | **Night color** | red | Color during the night range. |
 | Night time | **Night starts** | `22:00` | Start of the night range. |
@@ -42,14 +42,15 @@ blocks. That makes them twice the size of any font on the clock.
 **Every field is always visible.** AWTRIX NG can't hide settings based on other settings, so the color
 pickers are simply ignored until their checkbox is on.
 
-**Night color works with Custom color off too.** Day then uses the device or global color, and night
+**Night color works with Custom color off too.** Day then uses the global text color, and night
 uses your night color.
 
 ## Layouts
 
-- **No seconds:** four 11×16 px digits with 3-pixel strokes fill 50 of the 52 columns. `9:47` (12-hour,
+- **No seconds:** four 11×16 px digits with 2-pixel strokes fill 50 of the 52 columns. `9:47` (12-hour,
   no leading zero) is centred.
 - **With seconds:** HH:MM uses 9×16 px digits. Seconds are 3×5 px in the bottom-right corner.
+- **2 and 5** have their own shapes (a diagonal 2, a square-shouldered 5) so they don't read as an S.
 - **Colon:** two solid 2×2 dots, never blinks.
 - **12-hour mode** shows no AM/PM marker.
 
