@@ -1,0 +1,5 @@
+{
+  "type": "script",
+  "files": ["BigClock.ax"],
+  "preview": "preview.png"
+}

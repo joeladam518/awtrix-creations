@@ -1,0 +1,309 @@
+# @name    BigDate
+# @desc    The biggest date the 52x16 panel can show, in the format you pick, with optional night color
+# @author  Joel
+# @version 1.0
+# @display 52x16
+# @config  fmt     select "Format"          default=MM-DD-YYYY options="MM-DD-YYYY,DD-MM-YYYY,YYYY-MM-DD,Nov 17th" group="Date format"
+# @config  sep     select "Date separator"  default="Dash (-)" options="Dot (.),Dash (-),Slash (/),Backslash (\),Pipe (|)" group="Date format" help="Not used by the Nov 17th format"
+# @config  year    select "Year digits"     default="4 digits" options="Hidden,2 digits,4 digits" group="Date format" help="Hidden or 2 digits: one big line. 4 digits: two lines"
+# @config  custom  bool   "Custom color"    default=false group="Color" help="Off: the device's date color, or the global text color when that is not set"
+# @config  color   color  "Day color"       default=#FFFFFF group="Color" help="Used only when Custom color is on"
+# @config  night   bool   "Use night color" default=false group="Night time" help="Switch to the night color between the two times below"
+# @config  ncolor  color  "Night color"     default=#FF0000 group="Night time" help="Used only when Use night color is on"
+# @config  nstart  text   "Night starts"    default="22:00" maxlen=8 group="Night time" help="24-hour HH:MM such as 22:00 (10pm also works)"
+# @config  nend    text   "Night ends"      default="07:00" maxlen=8 group="Night time" help="Everything outside this range is day time"
+
+# Layouts (52x16):
+#   year hidden            one line, 16-pixel digits            11-17
+#   2-digit year           one line, 16-pixel digits            11-17-26
+#   4-digit year           two lines, 7-pixel bold digits       11-17 / 2026
+#   Nov 17th, year hidden  month name + 16-pixel day + suffix   NOV 17TH
+#   Nov 17th with year     two lines                            NOV 17TH / 2026
+# The layout is worked out once (when the date changes) and kept as a list of
+# drawing steps, so draw() only paints.
+
+class BigDate
+  var fmt, sk, ymode, custom, color, night, ncolor, nstart, nend
+  var seg, months, plan, key, ticks, tint
+
+  def init()
+    var f = store.get("fmt")
+    self.fmt = 0
+    if f == "DD-MM-YYYY" self.fmt = 1
+    elif f == "YYYY-MM-DD" self.fmt = 2
+    elif f == "Nov 17th" self.fmt = 3
+    end
+    var s = store.get("sep")
+    self.sk = 1
+    if s == "Dot (.)" self.sk = 0
+    elif s == "Slash (/)" self.sk = 2
+    elif s == "Backslash (\\)" self.sk = 3
+    elif s == "Pipe (|)" self.sk = 4
+    end
+    var y = store.get("year")
+    self.ymode = 2
+    if y == "Hidden" self.ymode = 0
+    elif y == "2 digits" self.ymode = 1
+    end
+    self.custom = store.get("custom")
+    self.color = store.get("color")
+    self.night = store.get("night")
+    self.ncolor = store.get("ncolor")
+    self.nstart = self.minutes(store.get("nstart"))
+    self.nend = self.minutes(store.get("nend"))
+    # segment bits: 1 top, 2 upper right, 4 lower right, 8 bottom, 16 lower left, 32 upper left, 64 middle
+    self.seg = [63, 6, 91, 79, 102, 109, 125, 7, 127, 111]
+    self.months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    self.plan = []
+    self.key = -1
+    self.ticks = 0
+    self.tint = 0xFFFFFF
+    self.loop()
+  end
+
+  # "22:00", "2200", "7:30", "10pm", "10:30 PM" -> minutes after midnight, or nil
+  def minutes(s)
+    if s == nil return nil end
+    var m = re.search("^\\s*(\\d\\d?):?(\\d\\d)?\\s*([AaPp])?", s)
+    if m == nil return nil end
+    var h = int(num(m[1], 0))
+    var mi = 0
+    if m[2] != nil mi = int(num(m[2], 0)) end
+    if m[3] != nil
+      if h < 1 || h > 12 return nil end
+      h = h % 12
+      if m[3] == "p" || m[3] == "P" h += 12 end
+    end
+    if h > 23 || mi > 59 return nil end
+    return h * 60 + mi
+  end
+
+  # Once a second: pick the color, and rebuild the layout when the date changes
+  # (and once a minute anyway, to follow the device's uppercase setting).
+  def loop()
+    var c = nil
+    var h = hour()
+    if self.night && h >= 0 && self.nstart != nil && self.nend != nil
+      var t = h * 60 + minute()
+      var a = self.nstart
+      var b = self.nend
+      if (a < b && t >= a && t < b) || (a > b && (t >= a || t < b))
+        c = self.ncolor
+      end
+    end
+    if c == nil
+      if self.custom
+        c = self.color
+      else
+        c = settings.get("dateColor")
+        if c == nil c = settings.get("textColor") end
+        if c == nil c = 0xFFFFFF end
+      end
+    end
+    self.tint = c
+    var k = year() * 10000 + month() * 100 + day()
+    self.ticks -= 1
+    if k != self.key || self.ticks <= 0
+      self.key = k
+      self.ticks = 60
+      self.build()
+    end
+  end
+
+  # Turns today's date into self.plan, a list of drawing steps:
+  #   [0, digit, x, y, w, h, sv, sh, m]   block digit
+  #   [1, kind, x, y, w, h, m]            separator
+  #   [2, font, x, baseline, text]        text
+  def build()
+    var D = day()
+    var M = month()
+    var Y = year()
+    var p = []
+    if Y < 2000 || M < 1 || D < 1
+      p.push([1, 1, (width() - 12) / 2, 0, 12, 16, 2])   # date not known yet: a dash
+      self.plan = p
+      return
+    end
+    if self.fmt == 3
+      var mon = settings.apply_case(self.months[M - 1])
+      var suf = "th"
+      if D < 11 || D > 13
+        if D % 10 == 1 suf = "st"
+        elif D % 10 == 2 suf = "nd"
+        elif D % 10 == 3 suf = "rd"
+        end
+      end
+      suf = settings.apply_case(suf)
+      font("matrix-chunky8")
+      var mw = text_ink_width(mon)
+      var x = 0
+      if self.ymode == 0
+        # NOV [17]th - month centred on the big day number, suffix raised
+        font("small")
+        var sw = text_ink_width(suf)
+        var dw = 11
+        if D >= 10 dw = 23 end
+        x = (width() - (mw + 3 + dw + 1 + sw)) / 2
+        p.push([2, "matrix-chunky8", x, 12, mon])
+        x += mw + 3
+        if D >= 10
+          p.push([0, D / 10, x, 0, 11, 16, 3, 3, 2])
+          x += 12
+        end
+        p.push([0, D % 10, x, 0, 11, 16, 3, 3, 2])
+        x += 12
+        p.push([2, "small", x, 5, suf])
+      else
+        # NOV 17TH over the year
+        var sw = text_ink_width(suf)
+        var dw = 6
+        if D >= 10 dw = 13 end
+        x = (width() - (mw + 3 + dw + 1 + sw)) / 2
+        p.push([2, "matrix-chunky8", x, 8, mon])
+        x += mw + 3
+        if D >= 10
+          p.push([0, D / 10, x, 0, 6, 7, 2, 1, 1])
+          x += 7
+        end
+        p.push([0, D % 10, x, 0, 6, 7, 2, 1, 1])
+        x += 7
+        p.push([2, "matrix-chunky8", x, 8, suf])
+        if self.ymode == 1
+          self.row(p, [[Y % 100, 2]], 9, 6, 7, 2, 1, 1, 0)
+        else
+          self.row(p, [[Y, 4]], 9, 6, 7, 2, 1, 1, 0)
+        end
+      end
+    else
+      var md = [[M, 2], [D, 2]]
+      if self.fmt == 1 md = [[D, 2], [M, 2]] end
+      # separator widths per size: dot, dash, slash, backslash, pipe
+      var widths = [3, 4, 5, 5, 2]
+      if self.ymode == 1 widths = [2, 3, 4, 4, 2] end
+      if self.ymode == 2 widths = [2, 3, 3, 3, 1] end
+      var sw = widths[self.sk]
+      if self.ymode == 0
+        self.row(p, md, 0, 10, 16, 3, 3, 2, sw)
+      elif self.ymode == 1
+        var g = [md[0], md[1], [Y % 100, 2]]
+        if self.fmt == 2 g = [[Y % 100, 2], md[0], md[1]] end
+        self.row(p, g, 0, 6, 16, 2, 2, 2, sw)
+      else
+        if self.fmt == 2
+          self.row(p, [[Y, 4]], 0, 6, 7, 2, 1, 1, sw)
+          self.row(p, md, 9, 6, 7, 2, 1, 1, sw)
+        else
+          self.row(p, md, 0, 6, 7, 2, 1, 1, sw)
+          self.row(p, [[Y, 4]], 9, 6, 7, 2, 1, 1, sw)
+        end
+      end
+    end
+    self.plan = p
+  end
+
+  # Adds one centred row of number groups ([value, digits] each), separated by the separator.
+  def row(p, groups, y, w, h, sv, sh, m, sw)
+    var n = size(groups)
+    var tw = (n - 1) * (sw + 2)
+    var i = 0
+    while i < n
+      tw += groups[i][1] * (w + 1) - 1
+      i += 1
+    end
+    var x = (width() - tw) / 2
+    i = 0
+    while i < n
+      if i > 0
+        p.push([1, self.sk, x + 1, y, sw, h, m])
+        x += sw + 2
+      end
+      var v = groups[i][0]
+      var div = 10
+      if groups[i][1] == 4 div = 1000 end
+      while div >= 1
+        p.push([0, (v / div) % 10, x, y, w, h, sv, sh, m])
+        x += w + 1
+        div = div / 10
+      end
+      x -= 1
+      i += 1
+    end
+  end
+
+  # One digit d at (x, y), w x h pixels. sv = vertical stroke, sh = top/bottom stroke, m = middle bar.
+  def dig(d, x, y, w, h, sv, sh, m, c)
+    var gy = y + (h - m) / 2
+    if d == 1
+      var sx = x + (w - sv + 1) / 2
+      var f = (w - sv) / 2
+      if f < 1 f = 1 end
+      rect_fill(sx, y, sv, h, c)
+      rect_fill(sx - f, y + 1, f, sh, c)
+      if sh > 1 pixel(sx - f, y + 1, 0) end
+      return
+    end
+    var b = self.seg[d]
+    var up = gy + m - y
+    var lo = y + h - gy
+    if (b & 1) != 0 rect_fill(x, y, w, sh, c) end
+    if (b & 8) != 0 rect_fill(x, y + h - sh, w, sh, c) end
+    if (b & 64) != 0 rect_fill(x, gy, w, m, c) end
+    if (b & 32) != 0 rect_fill(x, y, sv, up, c) end
+    if (b & 2) != 0 rect_fill(x + w - sv, y, sv, up, c) end
+    if (b & 16) != 0 rect_fill(x, gy, sv, lo, c) end
+    if (b & 4) != 0 rect_fill(x + w - sv, gy, sv, lo, c) end
+    if w > 4
+      # round off the outer corners where two strokes meet
+      if (b & 33) == 33 pixel(x, y, 0) end
+      if (b & 3) == 3 pixel(x + w - 1, y, 0) end
+      if (b & 24) == 24 pixel(x, y + h - 1, 0) end
+      if (b & 12) == 12 pixel(x + w - 1, y + h - 1, 0) end
+    end
+  end
+
+  # Separator k (0 dot, 1 dash, 2 slash, 3 backslash, 4 pipe), w pixels wide.
+  def mark(k, x, y, w, h, m, c)
+    if k == 0
+      rect_fill(x, y + h - w, w, w, c)
+    elif k == 1
+      rect_fill(x, y + (h - m) / 2, w, m, c)
+    elif k == 4
+      rect_fill(x, y, w, h, c)
+    else
+      var t = 1
+      if h > 8 t = 2 end
+      var r = 0
+      while r < h
+        var off = (r * (w - t) + (h - 1) / 2) / (h - 1)
+        if k == 3
+          rect_fill(x + off, y + r, t, 1, c)
+        else
+          rect_fill(x + w - t - off, y + r, t, 1, c)
+        end
+        r += 1
+      end
+    end
+  end
+
+  def draw()
+    clear()
+    var c = self.tint
+    var p = self.plan
+    var n = size(p)
+    var i = 0
+    while i < n
+      var o = p[i]
+      if o[0] == 0
+        self.dig(o[1], o[2], o[3], o[4], o[5], o[6], o[7], o[8], c)
+      elif o[0] == 1
+        self.mark(o[1], o[2], o[3], o[4], o[5], o[6], c)
+      else
+        font(o[1])
+        text(o[2], o[3], o[4], c)
+      end
+      i += 1
+    end
+  end
+end
+
+return BigDate()

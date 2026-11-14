@@ -1,0 +1,14 @@
+# Catches broken manifests or missing files before a release does.
+name: Check packages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/build.py --check

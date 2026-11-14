@@ -1,0 +1,160 @@
+# @name    BigClock
+# @desc    The biggest clock the 52x16 panel can show: 16-pixel digits, solid colon, optional small seconds and night color
+# @author  Joel
+# @version 1.0
+# @display 52x16
+# @config  h24     bool  "24-hour time"     default=false group="Time format"
+# @config  lead    bool  "Leading zero"     default=false group="Time format" help="Show 09:05 instead of 9:05"
+# @config  secs    bool  "Show seconds"     default=false group="Time format" help="Hours and minutes stay full height; seconds show small in the bottom-right corner"
+# @config  custom  bool  "Custom color"     default=false group="Color" help="Off: the device's time color, or the global text color when that is not set"
+# @config  color   color "Day color"        default=#FFFFFF group="Color" help="Used only when Custom color is on"
+# @config  night   bool  "Use night color"  default=false group="Night time" help="Switch to the night color between the two times below"
+# @config  ncolor  color "Night color"      default=#FF0000 group="Night time" help="Used only when Use night color is on"
+# @config  nstart  text  "Night starts"     default="22:00" maxlen=8 group="Night time" help="24-hour HH:MM such as 22:00 (10pm also works)"
+# @config  nend    text  "Night ends"       default="07:00" maxlen=8 group="Night time" help="Everything outside this range is day time"
+
+# Digits are drawn from rectangles (a solid 7-segment style), so they can be
+# exactly 16 rows tall - twice the height of the biggest built-in font.
+
+class BigClock
+  var h24, lead, secs, custom, color, night, ncolor, nstart, nend
+  var seg, tint
+
+  def init()
+    self.h24 = store.get("h24")
+    self.lead = store.get("lead")
+    self.secs = store.get("secs")
+    self.custom = store.get("custom")
+    self.color = store.get("color")
+    self.night = store.get("night")
+    self.ncolor = store.get("ncolor")
+    self.nstart = self.minutes(store.get("nstart"))
+    self.nend = self.minutes(store.get("nend"))
+    # segment bits: 1 top, 2 upper right, 4 lower right, 8 bottom, 16 lower left, 32 upper left, 64 middle
+    self.seg = [63, 6, 91, 79, 102, 109, 125, 7, 127, 111]
+    self.tint = 0xFFFFFF
+    self.loop()
+  end
+
+  # "22:00", "2200", "7:30", "10pm", "10:30 PM" -> minutes after midnight, or nil
+  def minutes(s)
+    if s == nil return nil end
+    var m = re.search("^\\s*(\\d\\d?):?(\\d\\d)?\\s*([AaPp])?", s)
+    if m == nil return nil end
+    var h = int(num(m[1], 0))
+    var mi = 0
+    if m[2] != nil mi = int(num(m[2], 0)) end
+    if m[3] != nil
+      if h < 1 || h > 12 return nil end
+      h = h % 12
+      if m[3] == "p" || m[3] == "P" h += 12 end
+    end
+    if h > 23 || mi > 59 return nil end
+    return h * 60 + mi
+  end
+
+  # Picks the color once a second, so draw() only paints.
+  def loop()
+    var c = nil
+    var h = hour()
+    if self.night && h >= 0 && self.nstart != nil && self.nend != nil
+      var t = h * 60 + minute()
+      var a = self.nstart
+      var b = self.nend
+      if (a < b && t >= a && t < b) || (a > b && (t >= a || t < b))
+        c = self.ncolor
+      end
+    end
+    if c == nil
+      if self.custom
+        c = self.color
+      else
+        c = settings.get("timeColor")
+        if c == nil c = settings.get("textColor") end
+        if c == nil c = 0xFFFFFF end
+      end
+    end
+    self.tint = c
+  end
+
+  # One digit d at (x, y), w x h pixels. sv = vertical stroke, sh = top/bottom stroke, m = middle bar.
+  def dig(d, x, y, w, h, sv, sh, m, c)
+    var gy = y + (h - m) / 2
+    if d == 1
+      var sx = x + (w - sv + 1) / 2
+      var f = (w - sv) / 2
+      if f < 1 f = 1 end
+      rect_fill(sx, y, sv, h, c)
+      rect_fill(sx - f, y + 1, f, sh, c)
+      if sh > 1 pixel(sx - f, y + 1, 0) end
+      return
+    end
+    var b = self.seg[d]
+    var up = gy + m - y
+    var lo = y + h - gy
+    if (b & 1) != 0 rect_fill(x, y, w, sh, c) end
+    if (b & 8) != 0 rect_fill(x, y + h - sh, w, sh, c) end
+    if (b & 64) != 0 rect_fill(x, gy, w, m, c) end
+    if (b & 32) != 0 rect_fill(x, y, sv, up, c) end
+    if (b & 2) != 0 rect_fill(x + w - sv, y, sv, up, c) end
+    if (b & 16) != 0 rect_fill(x, gy, sv, lo, c) end
+    if (b & 4) != 0 rect_fill(x + w - sv, gy, sv, lo, c) end
+    if w > 4
+      # round off the outer corners where two strokes meet
+      if (b & 33) == 33 pixel(x, y, 0) end
+      if (b & 3) == 3 pixel(x + w - 1, y, 0) end
+      if (b & 24) == 24 pixel(x, y + h - 1, 0) end
+      if (b & 12) == 12 pixel(x + w - 1, y + h - 1, 0) end
+    end
+  end
+
+  def draw()
+    clear()
+    var c = self.tint
+    var h = hour()
+    var m = minute()
+    if h < 0
+      # time not known yet: show --:--
+      var x0 = (width() - 50) / 2
+      rect_fill(x0, 7, 23, 2, c)
+      rect_fill(x0 + 27, 7, 23, 2, c)
+      return
+    end
+    if !self.h24
+      h = h % 12
+      if h == 0 h = 12 end
+    end
+    var two = h >= 10 || self.lead
+    var w = 11
+    var sv = 3
+    if self.secs
+      w = 9
+      sv = 2
+    end
+    var tw = 3 * w + 5
+    if two tw += w + 1 end
+    if self.secs tw += 9 end
+    var x = (width() - tw) / 2
+    if two
+      self.dig(h / 10, x, 0, w, 16, sv, sv, 2, c)
+      x += w + 1
+    end
+    self.dig(h % 10, x, 0, w, 16, sv, sv, 2, c)
+    x += w + 1
+    # the colon is always solid
+    rect_fill(x, 4, 2, 2, c)
+    rect_fill(x, 10, 2, 2, c)
+    x += 3
+    self.dig(m / 10, x, 0, w, 16, sv, sv, 2, c)
+    x += w + 1
+    self.dig(m % 10, x, 0, w, 16, sv, sv, 2, c)
+    if self.secs
+      var s = second()
+      x += w + 2
+      self.dig(s / 10, x, 11, 3, 5, 1, 1, 1, c)
+      self.dig(s % 10, x + 4, 11, 3, 5, 1, 1, 1, c)
+    end
+  end
+end
+
+return BigClock()
